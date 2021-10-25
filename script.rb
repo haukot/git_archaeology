@@ -39,6 +39,8 @@ end
 
 require 'date'
 require 'json'
+require 'pathname'
+
 
 
 format = {
@@ -69,7 +71,7 @@ end
 
 
 
-threshold = 20 # days
+threshold = 7 # days
 
 def build_stat(stat={})
   default_stat = {
@@ -99,14 +101,29 @@ commits.each do |commit|
   stat[:commits_count] += 1
   stat[:authors][commit[:author]] ||= 0
   stat[:authors][commit[:author]] += 1
+
   stat[:added] += commit[:files].sum{|f| f[:added] }
   stat[:deleted] += commit[:files].sum{|f| f[:deleted] }
+
+  commit[:files].each do |file|
+    # stripped = Pathname(file[:name]).each_filename.to_a[0..-2].join('/') # without filename
+    stripped = Pathname(file[:name]).each_filename.to_a[0..-2].first(2).join('/') # two starting slashes
+    stat[:files][stripped] ||= { added: 0, deleted: 0 }
+    stat[:files][stripped][:added] += file[:added]
+    stat[:files][stripped][:deleted] += file[:deleted]
+  end
+
   last_date = commit[:date]
   stat[:to_date] = last_date
 end
 
 stats.map do |stat|
   stat[:dates] = "#{stat[:from_date]} - #{stat[:to_date]}"
+  stat[:files] = stat[:files].to_a
+                   .sort_by{|(k, v)| v[:added] + v[:deleted]}
+                   .reverse
+                   .map{|(name, v)| "#{name} +#{v[:added]} -#{v[:deleted]}"}
+                   .join("\n")
   stat.delete(:from_date)
   stat.delete(:to_date)
   stat
@@ -114,4 +131,12 @@ end
 
 puts "\n\n\n"
 
-stats.map{ |x| puts "#{x[:dates]} | #{x[:days_diff]} | #{x}" }
+stats.map do |x|
+  # TODO: change to .except in ruby 3.0
+  dup = x.dup
+  dates = dup.delete(:dates)
+  files = dup.delete(:files)
+  days_diff = dup.delete(:days_diff)
+  puts "#{dates} | #{days_diff} | #{dup}"
+  puts files
+end
