@@ -71,7 +71,7 @@ end
 
 
 
-threshold = 7 # days
+threshold = 10 # days
 
 def build_stat(stat={})
   default_stat = {
@@ -106,8 +106,13 @@ commits.each do |commit|
   stat[:deleted] += commit[:files].sum{|f| f[:deleted] }
 
   commit[:files].each do |file|
-    # stripped = Pathname(file[:name]).each_filename.to_a[0..-2].join('/') # without filename
+    # Вообще в разных директориях нас интересует как правило разный уровень
+    # вложенности. Это вероятно должно настраиваться
+
+    # [0..-2] strips last part - so path will be without filename
+    # stripped = Pathname(file[:name]).each_filename.to_a[0..-2].join('/')
     stripped = Pathname(file[:name]).each_filename.to_a[0..-2].first(2).join('/') # two starting slashes
+    stripped = './' if stripped.empty?
     stat[:files][stripped] ||= { added: 0, deleted: 0 }
     stat[:files][stripped][:added] += file[:added]
     stat[:files][stripped][:deleted] += file[:deleted]
