@@ -35,19 +35,28 @@ dates.reduce do |cur, nxt|
 end
 
 
+
+
+require 'date'
+require 'json'
+
+
 format = {
   hash: "%h",
   date: "%cd",
-  title: "%s",
   author: "%an %ae",
-
-}
-commits_str = `git log --no-merges --since=2014-02-01 --until=2021-11-31 --pretty=format:"--commit--%h--commit-hash--%s--commit-date--%cd--commit-title--" --numstat --date=short`
+}.to_json.gsub('"', "'")
+# commits_str = `git log --no-merges --since=2014-02-01 --until=2021-11-31 --pretty=format:"--commit--#{format}--commit-title--%s--commit-data--" --numstat --date=short`
+commits_str = `git log --no-merges  --pretty=format:"--commit--#{format}--commit-title--%s--commit-data--" --numstat --date=short`
 
 commits = commits_str.split('--commit--').reject(&:empty?).map do |c|
-  title_str, files_str = c.split("--commit-title--\n")
-  hash, title_str2 = title_str.split('--commit-hash--')
-  title, date = title_str2.split('--commit-date--')
+  info, files_str = c.split("--commit-data--\n")
+  data_json, title = info.split("--commit-title--")
+
+  data = JSON.parse(data_json.gsub("'", '"'))
+  hash = data['hash']
+  date = data['date']
+  author = data['author']
 
   # like commit de8d27073 in serviceguru-web, without any files(how is this possible btw?)
   files = (files_str || "").split("\n").map do |f|
@@ -55,34 +64,41 @@ commits = commits_str.split('--commit--').reject(&:empty?).map do |c|
     { added: file[0].to_i, deleted: file[1].to_i, name: file[2] }
   end
 
-  {title: title, hash: hash, date: Date.parse(date), files: files}
+  {title: title, hash: hash, date: Date.parse(date), files: files, author: author}
 end
 
 
 
-threshold = 7 # days
+threshold = 20 # days
 
-default_stat = {
-  from_date: nil,
-  to_date: nil,
-  added: 0,
-  deleted: 0,
-  days_diff: 0,
-  commits_count: 0,
-  authors: {}, # TODO add author
-  files: {}
-}
+def build_stat(stat={})
+  default_stat = {
+    from_date: nil,
+    to_date: nil,
+    added: 0,
+    deleted: 0,
+    days_diff: 0,
+    commits_count: 0,
+    authors: {}, # TODO add author
+    files: {}
+  }
+
+  { **default_stat, **stat }
+end
+
 last_date = commits.first[:date]
-stats = [{ **default_stat, from_date: last_date, to_date: last_date }]
+stats = [build_stat(from_date: last_date, to_date: last_date)]
 commits.each do |commit|
   stat = stats.last
   if (stat[:to_date] - commit[:date]) > threshold
     stat[:days_diff] = (stat[:to_date] - commit[:date]).to_i
-    stat = { **default_stat, from_date: commit[:date] }
+    stat = build_stat(from_date: commit[:date])
     stats.push(stat)
   end
 
   stat[:commits_count] += 1
+  stat[:authors][commit[:author]] ||= 0
+  stat[:authors][commit[:author]] += 1
   stat[:added] += commit[:files].sum{|f| f[:added] }
   stat[:deleted] += commit[:files].sum{|f| f[:deleted] }
   last_date = commit[:date]
@@ -95,5 +111,7 @@ stats.map do |stat|
   stat.delete(:to_date)
   stat
 end
+
+puts "\n\n\n"
 
 stats.map{ |x| puts "#{x[:dates]} | #{x[:days_diff]} | #{x}" }
