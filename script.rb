@@ -70,16 +70,21 @@ raw_commits = commits_str.split('--commit--').reject(&:empty?).map do |c|
 end
 
 threshold = 10 # days
-author_threshold = 30 # days
+author_threshold = 90 # days
+
+commits = raw_commits.map(&:dup) # шоб изменения не втыкались в исходные
 
 # ушедшие с проекта
 authors_gone = {}
 commits = raw_commits.map do |commit|
   author = commit[:author]
-  if authors_gone[author].nil? # || authors_gone[author][:last_activity] - commit[:date] > author_threshold
-    authors_gone[commit[:author]] = { last_activity: commit[:date] }
+  if authors_gone[author].nil?
+    commit[:author_really_gone] = true
+  end
+  if authors_gone[author].nil? || authors_gone[author][:last_activity] - commit[:date] > author_threshold
     commit[:author_gone_here] = true
   end
+  authors_gone[author] = { last_activity: commit[:date] }
 
   commit
 end
@@ -88,13 +93,16 @@ end
 commits = commits.reverse
 
 # пришедшие на проект
-authors = {}
+new_authors = {}
 commits = commits.map do |commit|
   author = commit[:author]
-  if authors[author].nil? # || authors[author][:last_activity] - commit[:date] > author_threshold
-    authors[commit[:author]] = { last_activity: commit[:date] }
+  if new_authors[author].nil?
+    commit[:really_new_author] = true
+  end
+  if new_authors[author].nil? || commit[:date] - new_authors[author][:last_activity] > author_threshold
     commit[:new_author] = true
   end
+  new_authors[author] = { last_activity: commit[:date] }
 
   commit
 end
@@ -139,26 +147,9 @@ commits.each do |commit|
     stat[:days_diff] = (commit[:date] - stat[:from_date]).to_i
     stat = build_stat(from_date: last_date)
     stat[:new_author] = commit[:author]
+    stat[:really_new] = true if commit[:really_new_author]
     stats.push(stat)
   end
-
-  # # слои по авторам
-  # if authors[commit[:author]].nil?
-  #   authors[commit[:author]] ||= { last_activity: nil }
-
-  #   stat = build_stat(from_date: last_date)
-  #   stat[:new_author] = commit[:author]
-  #   stat[:days_diff] = (commit[:date] - stat[:from_date]).to_i
-  #   stats.push(stat)
-  # end
-  # authors[commit[:author]][:last_activity] = commit[:date]
-
-
-  # if (stat[:to_date] - commit[:date]) > author_threshold
-  #   stat[:days_diff] = (stat[:to_date] - commit[:date]).to_i
-  #   stat = build_stat(from_date: commit[:date])
-  #   stats.push(stat)
-  # end
 
   stat[:commits_count] += 1
   stat[:authors][commit[:author]] ||= 0
@@ -187,6 +178,7 @@ commits.each do |commit|
     stat[:days_diff] = (commit[:date] - stat[:from_date]).to_i
     stat = build_stat(from_date: last_date)
     stat[:gone_author] = commit[:author]
+    stat[:really_gone] = true if commit[:author_really_gone]
     stats.push(stat)
   end
 end
@@ -217,6 +209,8 @@ stats.map do |x|
   days_diff = dup.delete(:days_diff)
   new_author = dup.delete(:new_author)
   gone_author = dup.delete(:gone_author)
-  puts "#{dates} | #{days_diff} | new: #{new_author} | gone: #{gone_author} | #{dup}"
+  really_gone = dup.delete(:really_gone)
+  really_new = dup.delete(:really_new)
+  puts "#{dates} | #{days_diff} | new#{really_new && "(really)"}: #{new_author} | gone#{really_gone && "(really)"}: #{gone_author} | #{dup}"
   puts files
 end
