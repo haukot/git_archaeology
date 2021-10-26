@@ -51,7 +51,7 @@ format = {
 # commits_str = `git log --no-merges --since=2014-02-01 --until=2021-11-31 --pretty=format:"--commit--#{format}--commit-title--%s--commit-data--" --numstat --date=short`
 commits_str = `git log --no-merges  --pretty=format:"--commit--#{format}--commit-title--%s--commit-data--" --numstat --date=short`
 
-commits = commits_str.split('--commit--').reject(&:empty?).map do |c|
+raw_commits = commits_str.split('--commit--').reject(&:empty?).map do |c|
   info, files_str = c.split("--commit-data--\n")
   data_json, title = info.split("--commit-title--")
 
@@ -69,9 +69,36 @@ commits = commits_str.split('--commit--').reject(&:empty?).map do |c|
   {title: title, hash: hash, date: Date.parse(date), files: files, author: author}
 end
 
-
-
 threshold = 10 # days
+author_threshold = 30 # days
+
+# ушедшие с проекта
+authors_gone = {}
+commits = raw_commits.map do |commit|
+  author = commit[:author]
+  if authors_gone[author].nil? # || authors_gone[author][:last_activity] - commit[:date] > author_threshold
+    authors_gone[commit[:author]] = { last_activity: commit[:date] }
+    commit[:author_gone_here] = true
+  end
+
+  commit
+end
+
+# определяем последовательность прохода
+commits = commits.reverse
+
+# пришедшие на проект
+authors = {}
+commits = commits.map do |commit|
+  author = commit[:author]
+  if authors[author].nil? # || authors[author][:last_activity] - commit[:date] > author_threshold
+    authors[commit[:author]] = { last_activity: commit[:date] }
+    commit[:new_author] = true
+  end
+
+  commit
+end
+
 
 def build_stat(stat={})
   default_stat = {
@@ -81,7 +108,8 @@ def build_stat(stat={})
     deleted: 0,
     days_diff: 0,
     commits_count: 0,
-    authors: {}, # TODO add author
+    new_author: nil,
+    authors: {},
     files: {}
   }
 
@@ -90,13 +118,47 @@ end
 
 last_date = commits.first[:date]
 stats = [build_stat(from_date: last_date, to_date: last_date)]
+authors = {}
+
 commits.each do |commit|
   stat = stats.last
-  if (stat[:to_date] - commit[:date]) > threshold
-    stat[:days_diff] = (stat[:to_date] - commit[:date]).to_i
-    stat = build_stat(from_date: commit[:date])
+
+  # слои по датам(от нового к старому; первый вариант)
+  # # if (stat[:to_date] - commit[:date]) > threshold
+  # #  stat[:days_diff] = (stat[:to_date] - commit[:date]).to_i
+
+
+  # слои по датам(от старого к новому; reversed)
+  # if (commit[:date] - stat[:to_date]) > threshold
+  #   stat[:days_diff] = (commit[:date] - stat[:to_date]).to_i
+  #   stat = build_stat(from_date: commit[:date])
+  #   stats.push(stat)
+  # end
+
+  if commit[:new_author]
+    stat[:days_diff] = (commit[:date] - stat[:from_date]).to_i
+    stat = build_stat(from_date: last_date)
+    stat[:new_author] = commit[:author]
     stats.push(stat)
   end
+
+  # # слои по авторам
+  # if authors[commit[:author]].nil?
+  #   authors[commit[:author]] ||= { last_activity: nil }
+
+  #   stat = build_stat(from_date: last_date)
+  #   stat[:new_author] = commit[:author]
+  #   stat[:days_diff] = (commit[:date] - stat[:from_date]).to_i
+  #   stats.push(stat)
+  # end
+  # authors[commit[:author]][:last_activity] = commit[:date]
+
+
+  # if (stat[:to_date] - commit[:date]) > author_threshold
+  #   stat[:days_diff] = (stat[:to_date] - commit[:date]).to_i
+  #   stat = build_stat(from_date: commit[:date])
+  #   stats.push(stat)
+  # end
 
   stat[:commits_count] += 1
   stat[:authors][commit[:author]] ||= 0
@@ -120,6 +182,13 @@ commits.each do |commit|
 
   last_date = commit[:date]
   stat[:to_date] = last_date
+
+  if commit[:author_gone_here]
+    stat[:days_diff] = (commit[:date] - stat[:from_date]).to_i
+    stat = build_stat(from_date: last_date)
+    stat[:gone_author] = commit[:author]
+    stats.push(stat)
+  end
 end
 
 stats.map do |stat|
@@ -129,6 +198,10 @@ stats.map do |stat|
                    .reverse
                    .map{|(name, v)| "#{name} +#{v[:added]} -#{v[:deleted]}"}
                    .join("\n")
+  stat[:authors] = stat[:authors]
+                     .sort_by{|(k, v)| v}
+                     .reverse
+                     .to_h
   stat.delete(:from_date)
   stat.delete(:to_date)
   stat
@@ -142,6 +215,8 @@ stats.map do |x|
   dates = dup.delete(:dates)
   files = dup.delete(:files)
   days_diff = dup.delete(:days_diff)
-  puts "#{dates} | #{days_diff} | #{dup}"
+  new_author = dup.delete(:new_author)
+  gone_author = dup.delete(:gone_author)
+  puts "#{dates} | #{days_diff} | new: #{new_author} | gone: #{gone_author} | #{dup}"
   puts files
 end
