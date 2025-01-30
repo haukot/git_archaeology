@@ -1,75 +1,118 @@
-<!DOCTYPE hml>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Git Visualizer</title>
     <style>
-        .cell {
-            stroke: #ccc;
-            stroke-width: 1px;
+        table {
+            border-collapse: collapse;
+            table-layout: fixed;
         }
-        .axis {
+        #visualization {
+            overflow-x: auto;
+            overflow-y: auto;
+            position: relative;
+            max-height: 90vh;
+        }
+        td {
+            width: 2px;
+            height: 2px;
+            padding: 0;
+        }
+        th {
+            width: 3px;
+            padding: 0;
+            font-size: 10px;
+            transform: rotate(180deg);
+            height: 50px;
+            position: sticky;
+            top: 0;
+            writing-mode: vertical-rl;
+            background: white;
+            z-index: 1;
+        }
+        .file-name {
+            padding-right: 10px;
             font-size: 12px;
+            white-space: nowrap;
+            position: sticky;
+            left: 0;
+            background: white;
+            z-index: 1;
+        }
+        .corner-header {
+            width: auto;
+            transform: none;
+            height: auto;
+            text-align: left;
+            padding-right: 10px;
+            position: sticky;
+            left: 0;
+            top: 0;
+            background: white;
+            z-index: 3;
         }
     </style>
 </head>
 <body>
     <div id="visualization"></div>
-    <script src="https://d3js.org/d3.v6.min.js"></script>
     <script>
-        const width = 1200;
-        const height = 800;
-        const margin = { top: 50, right: 50, bottom: 100, left: 100 };
+        function createTable(data) {
+            const table = document.createElement('table');
+            
+            // Create header row
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            
+            // Add corner header
+            const cornerHeader = document.createElement('th');
+            cornerHeader.className = 'corner-header';
+            cornerHeader.textContent = 'Files';
+            headerRow.appendChild(cornerHeader);
+            
+            // Add date headers
+            data.dates.forEach(date => {
+                const th = document.createElement('th');
+                th.textContent = date;
+                headerRow.appendChild(th);
+            });
+            
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
 
-        const svg = d3.select("#visualization")
-            .append("svg")
-            .attr("width", width)
-            .attr("height", height)
-            .append("g")
-            .attr("transform", `translate(${margin.left},${margin.top})`);
+            // Create table body
+            const tbody = document.createElement('tbody');
 
-        const xScale = d3.scaleBand().range([0, width - margin.left - margin.right]).padding(0.01);
-        const yScale = d3.scaleBand().range([0, height - margin.top - margin.bottom]).padding(0.01);
-        const colorScale = d3.scaleOrdinal(d3.schemeCategory10);
+            // Create rows for each file
+            data.files_or_groups.forEach((file, i) => {
+                const row = document.createElement('tr');
+                
+                // Add file name cell
+                const fileCell = document.createElement('td');
+                fileCell.className = 'file-name';
+                fileCell.textContent = file;
+                row.appendChild(fileCell);
 
-        function drawHeatmap(data) {
-            xScale.domain(data.dates);
-            yScale.domain(data.files_or_groups);
+                // Add cells for each date
+                data.matrix[i].forEach((value, j) => {
+                    const cell = document.createElement('td');
+                    if (value) {
+                        cell.style.backgroundColor = `hsl(${value * 120}, 70%, 50%)`;
+                    }
+                    row.appendChild(cell);
+                });
 
-            svg.selectAll(".row")
-                .data(data.matrix)
-                .enter()
-                .append("g")
-                .attr("class", "row")
-                .attr("transform", (d, i) => `translate(0, ${yScale(data.files_or_groups[i])})`)
-                .selectAll(".cell")
-                .data((d, i) => d.map((value, j) => ({ value, date: data.dates[j], group: data.files_or_groups[i] })))
-                .enter()
-                .append("rect")
-                .attr("class", "cell")
-                .attr("x", d => xScale(d.date))
-                .attr("y", 0)
-                .attr("width", xScale.bandwidth())
-                .attr("height", yScale.bandwidth())
-                .attr("fill", d => d.value ? colorScale(d.value) : "#fff");
+                tbody.appendChild(row);
+            });
 
-            svg.append("g")
-                .attr("class", "axis")
-                .attr("transform", `translate(0, ${height - margin.top - margin.bottom})`)
-                .call(d3.axisBottom(xScale).tickSize(0))
-                .selectAll("text")
-                .attr("transform", "rotate(-45)")
-                .style("text-anchor", "end");
-
-            svg.append("g")
-                .attr("class", "axis")
-                .call(d3.axisLeft(yScale).tickSize(0));
+            table.appendChild(tbody);
+            document.getElementById('visualization').appendChild(table);
         }
 
         fetch('/data?depth=1')
             .then(response => response.json())
-            .then(data => drawHeatmap(data));
+            .then(data => createTable(data));
     </script>
 </body>
 </html>
