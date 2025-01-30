@@ -38,7 +38,7 @@
             white-space: nowrap;
             position: sticky;
             left: 0;
-            background: white;
+            background: inherit;
             z-index: 1;
         }
         .corner-header {
@@ -53,11 +53,94 @@
             background: white;
             z-index: 3;
         }
+        .path-nav {
+            margin-bottom: 10px;
+            font-family: monospace;
+        }
+        .path-segment {
+            cursor: pointer;
+            color: #0066cc;
+            text-decoration: underline;
+        }
+        .path-segment:hover {
+            color: #003366;
+        }
+        .path-separator {
+            margin: 0 5px;
+            color: #666;
+        }
+        tr {
+            border-bottom: 1px solid #eee;
+        }
+        tr:last-child {
+            border-bottom: none;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #d8d8d8;
+        }
     </style>
 </head>
 <body>
+    <div class="path-nav"></div>
     <div id="visualization"></div>
     <script>
+        function getUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                path: params.get('path') || '',
+                depth: parseInt(params.get('depth')) || 1
+            };
+        }
+
+        function updateUrlParams(path, depth) {
+            const params = new URLSearchParams();
+            if (path) params.set('path', path);
+            if (depth > 1) params.set('depth', depth);
+            
+            const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
+            window.history.pushState({}, '', newUrl);
+        }
+
+        // Initialize from URL params instead of hardcoded values
+        const urlParams = getUrlParams();
+        window.currentPath = urlParams.path;
+        window.currentDepth = urlParams.depth;
+
+        function createPathNavigation(path) {
+            const nav = document.querySelector('.path-nav');
+            nav.innerHTML = '';
+            
+            // Add root link
+            const rootSpan = document.createElement('span');
+            rootSpan.className = 'path-segment';
+            rootSpan.textContent = 'root';
+            rootSpan.onclick = () => loadData('', true);
+            nav.appendChild(rootSpan);
+
+            if (path) {
+                const segments = path.split('/');
+                let curPath = '';
+                
+                segments.forEach((segment, index) => {
+                    const separator = document.createElement('span');
+                    separator.className = 'path-separator';
+                    separator.textContent = '/';
+                    nav.appendChild(separator);
+
+                    curPath += (index === 0 ? '' : '/') + segment;
+                    const segmentSpan = document.createElement('span');
+                    segmentSpan.className = 'path-segment';
+                    segmentSpan.textContent = segment;
+                    const pathForClick = curPath;
+                    segmentSpan.onclick = () => loadData(pathForClick, true);
+                    nav.appendChild(segmentSpan);
+                });
+            }
+        }
+
         function createTable(data) {
             const table = document.createElement('table');
             
@@ -108,11 +191,65 @@
 
             table.appendChild(tbody);
             document.getElementById('visualization').appendChild(table);
+
+            // Add click handler for file names
+            const fileNameCells = document.querySelectorAll('.file-name');
+            fileNameCells.forEach(cell => {
+                const path = cell.textContent;
+                if (path.endsWith('/*')) {
+                    cell.style.cursor = 'pointer';
+                    cell.onclick = () => {
+                        loadData(path, true);
+                    };
+                }
+            });
         }
 
-        fetch('/data?depth=1')
-            .then(response => response.json())
-            .then(data => createTable(data));
+        function loadData(path, adjustDepth = true) {
+            let oldPath = window.currentPath;
+            window.currentPath = path;
+            
+            // Adjust depth based on navigation direction
+            if (adjustDepth) {
+                if (path === '') {
+                    window.currentDepth = 1;  // Reset to base depth for root
+                } else {
+                    const oldSegments = oldPath.split('/').filter(s => s);
+                    const newSegments = path.split('/').filter(s => s);
+                    
+                    // Going deeper
+                    if (newSegments.length > oldSegments.length) {
+                        window.currentDepth++;
+                    }
+                    // Going up
+                    else if (newSegments.length < oldSegments.length) {
+                        window.currentDepth = Math.max(1, window.currentDepth - 1);
+                    }
+                }
+            }
+
+            const newPath = path.endsWith('/*') ? path.slice(0, -2) : path; // Remove '/*' if present
+
+            // Update URL params before fetching
+            updateUrlParams(path, window.currentDepth);
+
+            fetch(`/data?depth=${window.currentDepth}&path=${encodeURIComponent(newPath)}`)
+                .then(response => response.json())
+                .then(data => {
+                    createPathNavigation(path);
+                    document.getElementById('visualization').innerHTML = '';
+                    createTable(data);
+                });
+        }
+
+        // Add popstate event listener to handle browser back/forward
+        window.addEventListener('popstate', () => {
+            const params = getUrlParams();
+            loadData(params.path, false);
+        });
+
+        // Initial load using URL params
+        loadData(window.currentPath, false);
     </script>
 </body>
 </html>

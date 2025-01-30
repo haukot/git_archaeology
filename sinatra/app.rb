@@ -79,6 +79,20 @@ class GitVisualizer
       matrix: @original_matrix
     }.to_json
   end
+
+  def to_json_for_path(path)
+    filtered_files = @files_or_groups.select { |file| file.start_with?(path) }
+    filtered_indices = filtered_files.map { |file| @files_or_groups.index(file) }
+    filtered_matrix = filtered_indices.map { |idx| @original_matrix[idx] }
+
+    {
+      authors: @authors,
+      dates: @all_dates_range.map(&:to_s),
+      files_or_groups: filtered_files,
+      matrix: filtered_matrix,
+      current_path: path
+    }
+  end
 end
 
 get '/' do
@@ -87,6 +101,15 @@ end
 
 get '/data' do
   content_type :json
-  visualizer = GitVisualizer.new('/home/haukot/temp/git-truck', params[:depth].to_i)
-  visualizer.to_json
+  path = params[:path] || ''
+  depth = params[:depth].to_i
+  visualizer = GitVisualizer.new('/home/haukot/temp/git-truck', depth)
+  
+  if path.empty?
+    visualizer.to_json
+  else
+    # Filter data for specific path
+    filtered_data = visualizer.to_json_for_path(path)
+    filtered_data.to_json
+  end
 end
